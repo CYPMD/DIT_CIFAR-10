@@ -126,7 +126,7 @@ class DiT(nn.Module):
         mlp_ratio=4.0,
         num_register_tokens=4,
         class_dropout_prob=0.1,
-        num_classes=1000,
+        num_classes=None,
         learn_sigma=True,
     ):
         super().__init__()
@@ -177,8 +177,9 @@ class DiT(nn.Module):
         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
         nn.init.constant_(self.x_embedder.proj.bias, 0)
 
-        # Initialize label embedding table:
-        nn.init.normal_(self.y_embedder.embedding.weight, std=0.02)
+        # Initialize label embedding table if conditioning is used:
+        if self.use_cond:
+            nn.init.normal_(self.y_embedder.embedding.weight, std=0.02)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
@@ -210,12 +211,12 @@ class DiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t, y):
+    def forward(self, x, t, y=None):
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
-        y: (N,) tensor of class labels
+        y: Optional (N,) tensor of class labels
         """
         H, W = x.shape[-2:]
         x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
@@ -231,9 +232,9 @@ class DiT(nn.Module):
         
         t = self.t_embedder(t)                   # (N, D)
         c = t
-        if self.use_cond:
+        if self.use_cond and y is not None:
             y = self.y_embedder(y, self.training)    # (N, D)
-        c = c + y                                # (N, D)
+            c = c + y                                # (N, D)
         
         for i, block in enumerate(self.blocks):
             x = block(x, c)                      # (N, T, D)
@@ -244,17 +245,6 @@ class DiT(nn.Module):
         x = self.final_layer(x, c)                # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x)                   # (N, out_channels, H, W)
         return x
-
-    def forward_with_cfg(self, x, t, y, cfg_scale):
-        x = x.repeat(2, 1, 1, 1)
-        t = t.repeat(x.shape[0])
-        y = y.repeat(2)
-        y[len(x) // 2:] = self.y_embedder.num_classes
-        
-        model_out = self.forward(x, t, y)
-        cond_eps, uncond_eps = model_out.split(len(x) // 2)
-        out = uncond_eps + (cond_eps - uncond_eps) * cfg_scale
-        return out
 
 # Positional embedding from:
 # https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
