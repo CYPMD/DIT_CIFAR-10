@@ -67,10 +67,13 @@ class LabelEmbedder(nn.Module):
 
 
 class RMSNorm(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, **kwargs): # <-- Add **kwargs here
         super().__init__()
         self.scale = dim**0.5
-        self.g = nn.Parameter(torch.ones(1))
+        
+        # Pass device and dtype to the parameter if they are provided by timm
+        factory_kwargs = {k: v for k, v in kwargs.items() if k in ['device', 'dtype']}
+        self.g = nn.Parameter(torch.ones(1, **factory_kwargs))
 
     def forward(self, x):
         return F.normalize(x, dim=-1) * self.scale * self.g
