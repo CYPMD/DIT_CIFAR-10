@@ -1,3 +1,5 @@
+Removed the Classifier free guidance, as I only want the unconditional diffusion
+
 ## Diffusion Transformer
 
 ![DiT CIFAR10 Samples](assets/step199999_cfg5.0_ema.png)
