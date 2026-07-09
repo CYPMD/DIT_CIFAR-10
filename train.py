@@ -24,7 +24,7 @@ def main():
     os.makedirs("images", exist_ok=True)
 
     dataset = torchvision.datasets.CIFAR10(
-        root="/mnt/g",
+        root="./mnt/g",
         train=True,
         download=True,
         transform=T.Compose([T.ToTensor(), T.RandomHorizontalFlip()]),
@@ -64,8 +64,11 @@ def main():
         log_gifs = []
         
         print(f"Sampling images at step {step}...")
-        traj = sampler.sample(100, return_all_steps=True)
-        log_img = make_grid(traj[-1], nrow=10)
+        # FIX: Unpack the returned tuple into 'samples' and 'traj'
+        samples, traj = sampler.sample(100, return_all_steps=True)
+        
+        # FIX: Create the grid using the 4D 'samples' tensor instead of traj[-1]
+        log_img = make_grid(samples, nrow=10)
         img_save_path = f"images/step{step}.png"
         save_image(log_img, img_save_path)
         log_imgs.append(
@@ -90,8 +93,11 @@ def main():
         model_ema.copy_to(model)
         
         print(f"Sampling images with ema model at step {step}...")
-        traj = sampler.sample(100, return_all_steps=True)
-        log_img = make_grid(traj[-1], nrow=10)
+        # FIX: Unpack here for the EMA model as well
+        samples_ema, traj = sampler.sample(100, return_all_steps=True)
+        
+        # FIX: Use 'samples_ema' here
+        log_img = make_grid(samples_ema, nrow=10)
         img_save_path = f"images/step{step}_ema.png"
         save_image(log_img, img_save_path)
         log_imgs.append(
@@ -145,7 +151,7 @@ def main():
                 )
                 losses.clear()
                 model.eval()
-                with torch.autocast(dtype=torch.bfloat16):
+                with torch.autocast(device_type=device, dtype=torch.bfloat16):
                     sample_and_log_images()
                 model.train()
                 
@@ -155,7 +161,7 @@ def main():
                 model_ema.store(model.parameters())
                 model_ema.copy_to(model)
                 
-                with torch.autocast(dtype=torch.bfloat16):
+                with torch.autocast(device_type=device, dtype=torch.bfloat16):
                     fid_score = fid_eval.fid_score()
                 print(f"FID score with EMA at step {step}: {fid_score}")
                 
