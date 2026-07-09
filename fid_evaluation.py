@@ -92,7 +92,7 @@ class FIDEvaluation:
         self.dataset_stats_loaded = True
     
     @torch.inference_mode()
-    def fid_score(self, cfg_scale=5.0, sample_steps=25):
+    def fid_score(self, sample_steps=25):
         if not self.dataset_stats_loaded:
             self.load_or_precalc_dataset_stats()
         batches = num_to_groups(self.n_samples, self.batch_size)
@@ -101,7 +101,7 @@ class FIDEvaluation:
             f"Stacking Inception features for {self.n_samples} generated samples."
         )
         for batch in tqdm(batches):
-            fake_samples = self.sampler.sample(batch_size=batch, cfg_scale=cfg_scale, sample_steps=sample_steps)
+            fake_samples = self.sampler.sample(batch_size=batch, sample_steps=sample_steps)
             fake_features = self.calculate_inception_features(fake_samples)
             stacked_fake_features.append(fake_features)
         stacked_fake_features = torch.cat(stacked_fake_features, dim=0).cpu().numpy()
