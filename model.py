@@ -52,7 +52,10 @@ class RectifiedFlow(nn.Module):
         images = [z]
         t_span = torch.linspace(0, 1, sample_steps, device=self.device)
         for t in tqdm(reversed(t_span)):
-            v_t = self.net(z, t)
+            # Expand t from a 0D scalar to a 1D batch tensor
+            t_batch = t.repeat(batch_size) 
+            
+            v_t = self.net(z, t_batch)
             z = z - v_t / sample_steps
             images.append(z)
         
