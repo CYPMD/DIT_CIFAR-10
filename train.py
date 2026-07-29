@@ -1,3 +1,4 @@
+#train.py
 from dit import DiT
 import torch
 import torchvision
@@ -7,7 +8,7 @@ from tqdm import tqdm
 from ema import LitEma
 from bitsandbytes.optim import AdamW8bit
 
-from model import RectifiedFlow
+from model import RectifiedFlow,unnormalize_to_0_1
 from fid_evaluation import FIDEvaluation
 
 import moviepy.editor as mpy
@@ -16,12 +17,12 @@ import os
 
 
 def main():
-    n_steps = 200000
+    n_steps = 500000
     device = "cuda" if torch.cuda.is_available() else "cpu"
     batch_size = 128
     
     # Ensure images directory exists
-    os.makedirs("images", exist_ok=True)
+    os.makedirs("images_v_pred", exist_ok=True)
 
     dataset = torchvision.datasets.CIFAR10(
         root="./mnt/g",
@@ -69,21 +70,22 @@ def main():
         
         # FIX: Create the grid using the 4D 'samples' tensor instead of traj[-1]
         log_img = make_grid(samples, nrow=10)
-        img_save_path = f"images/step{step}.png"
+        img_save_path = f"images_v_pred/step{step}.png"
         save_image(log_img, img_save_path)
         log_imgs.append(
             wandb.Image(img_save_path, caption="Unconditional Samples")
         )
         
+        # Change this in train.py (happens twice, once for normal, once for EMA)
         images_list = [
-            make_grid(frame, nrow=10).permute(1, 2, 0).cpu().numpy() * 255
+            make_grid(unnormalize_to_0_1(frame.clip(-1, 1)), nrow=10).permute(1, 2, 0).cpu().numpy() * 255
             for frame in traj
         ]
         clip = mpy.ImageSequenceClip(images_list, fps=10)
-        clip.write_gif(f"images/step{step}.gif")
+        clip.write_gif(f"images_v_pred/step{step}.gif")
         log_gifs.append(
             wandb.Video(
-                f"images/step{step}.gif",
+                f"images_v_pred/step{step}.gif",
                 caption="Unconditional Samples",
             )
         )
@@ -98,7 +100,7 @@ def main():
         
         # FIX: Use 'samples_ema' here
         log_img = make_grid(samples_ema, nrow=10)
-        img_save_path = f"images/step{step}_ema.png"
+        img_save_path = f"images_v_pred/step{step}_ema.png"
         save_image(log_img, img_save_path)
         log_imgs.append(
             wandb.Image(
@@ -106,15 +108,16 @@ def main():
             )
         )
         
+        # Change this in train.py (happens twice, once for normal, once for EMA)
         images_list = [
-            make_grid(frame, nrow=10).permute(1, 2, 0).cpu().numpy() * 255
+            make_grid(unnormalize_to_0_1(frame.clip(-1, 1)), nrow=10).permute(1, 2, 0).cpu().numpy() * 255
             for frame in traj
         ]
         clip = mpy.ImageSequenceClip(images_list, fps=10)
-        clip.write_gif(f"images/step{step}_ema.gif")
+        clip.write_gif(f"images_v_pred/step{step}_ema.gif")
         log_gifs.append(
             wandb.Video(
-                f"images/step{step}_ema.gif",
+                f"images_v_pred/step{step}_ema.gif",
                 caption="EMA Unconditional Samples",
             )
         )
@@ -170,11 +173,24 @@ def main():
                 
                 wandb.log({"FID": fid_score, "step": step})
 
-    state_dict = {
-        "model": model.state_dict(),
-        "ema": model_ema.state_dict(),
-    }
-    torch.save(state_dict, "model.pth")
+            # ---> ADD THIS NEW SAVING BLOCK <---
+            # (step + 1) ensures it saves exactly at iteration 100,000, 200,000, etc.
+            if (step + 1) % 100000 == 0 or step == n_steps - 1:
+                print(f"Saving model at step {step + 1}...")
+                state_dict = {
+                    "model": model.state_dict(),
+                    "ema": model_ema.state_dict(),
+                }
+                # Save the checkpoint with the step number
+                torch.save(state_dict, f"model_v_pred_step{step + 1}.pth")
+                # Overwrite the 'latest' checkpoint just in case it stops unexpectedly
+                torch.save(state_dict, "model_v_pred_latest.pth")
+
+    # state_dict = {
+    #     "model": model.state_dict(),
+    #     "ema": model_ema.state_dict(),
+    # }
+    # torch.save(state_dict, "model_v_pred.pth")
 
 
 if __name__ == "__main__":
