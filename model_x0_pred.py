@@ -1,3 +1,4 @@
+#model_x0_pred.py
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -43,47 +44,39 @@ class RectifiedFlow(nn.Module):
         x = normalize_to_neg1_1(x)
         z_t = (1 - t_) * x + t_ * z
 
-        # The network directly predicts the clean image.
         x_pred = self.net(z_t, t)
 
-        # Convert the clean-image prediction and target to velocity space.
+        # Simplified and numerically stable v-loss equivalent:
         denominator = t_.clamp_min(self.t_eps)
-        v_t = (z_t - x_pred) / denominator
-        target = (z_t - x) / denominator
-
-        return F.mse_loss(target, v_t)
+        loss = F.mse_loss(x_pred, x, reduction='none')
+        weight = 1.0 / (denominator ** 2)
+        
+        return (loss * weight).mean()
     
     @torch.no_grad()
     def sample(self, batch_size, sample_steps=50, return_all_steps=False):
         z = torch.randn(
-            (
-                batch_size,
-                self.channels,
-                self.image_size,
-                self.image_size,
-            ),
+            (batch_size, self.channels, self.image_size, self.image_size),
             device=self.device,
         )
         
         images = [z]
-        t_span = torch.linspace(
-            0,
-            1,
-            sample_steps,
-            device=self.device,
-        )
+        # Create intervals from 1.0 exactly down to 0.0
+        t_span = torch.linspace(1.0, 0.0, sample_steps + 1, device=self.device)
 
-        for t in tqdm(reversed(t_span)):
-            # Expand t from a 0D scalar to a 1D batch tensor.
+        for i in tqdm(range(sample_steps)):
+            t = t_span[i]
+            t_next = t_span[i + 1]
             t_batch = t.repeat(batch_size)
 
-            # The model output is a clean-image prediction.
             x_pred = self.net(z, t_batch)
+            
+            # Since t >= 1/sample_steps > 0, there is no division by zero here.
+            # Unclamped division allows the final step to collapse perfectly to x_pred!
+            v_t = (z - x_pred) / t
 
-            # Convert the clean-image prediction to velocity.
-            v_t = (z - x_pred) / t.clamp_min(self.t_eps)
-
-            z = z - v_t / sample_steps
+            # Correct Euler step
+            z = z + (t_next - t) * v_t
             images.append(z)
         
         z = unnormalize_to_0_1(z.clip(-1, 1))
